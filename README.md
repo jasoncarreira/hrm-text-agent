@@ -125,6 +125,35 @@ hallucinated params, and per-type value matching (with multiple acceptable value
 after training, watch the AST categories climb while irrelevance stays high (that
 balance is the real signal: calling correctly *and* knowing when not to).
 
+## Benchmark: academic suite (Math, MMLU, …) — `eval_academic.py`
+
+`eval_academic.py` runs the **same general-capability benchmarks sapientinc/HRM-Text
+reports** — `GSM8k, MATH, MMLU, ARC, HellaSwag, Winogrande, BoolQ, DROP` — against
+**any HF-format HRM checkpoint** (the base `sapientinc/HRM-Text-1B` *or* our local
+fine-tune). Their official harness only evaluates their native-format checkpoints
+(`SimpleEngine`) or standard-arch baselines via vLLM (which can't load HRM); this
+reimplements their prompting + scoring on top of `transformers` so it runs on HF
+models. Prompt/scoring logic is ported from their `evaluation/benchmarks.py`.
+
+It applies the **HRM condition prefix** the model expects (per the HRM-Text-1B model
+card): math/reasoning uses the composite `synth,cot`; NLP/MCQ uses `direct` + few-shot.
+Every prompt is wrapped `<|im_start|>{condition}{task}<|im_end|>`, generated to
+`<|box_end|>`, with `token_type_ids=1` over the prompt (PrefixLM prefill).
+
+```bash
+# base model (reference) vs our fine-tune — same harness, apples-to-apples
+python eval_academic.py --model sapientinc/HRM-Text-1B --out base_acad.json
+python eval_academic.py --model models/hrm-tooluse-full --out ours_acad.json
+python eval_academic.py --model models/hrm-tooluse-full --benchmarks GSM8k,MATH --limit 50  # quick
+```
+
+Most useful as a **forgetting check**: our model is a *tool-use* SFT, so compare the
+base-vs-fine-tune delta to see whether tool training eroded math/reasoning. Numbers
+won't match the repo's headline figures (lm-eval-style prompts differ from their
+native harness), but the base-vs-ours comparison is consistent. Needs a GPU for the
+generative sets (GSM8k/MATH); the MCQ sets are single-token and cheap. Uses HF
+`datasets` (downloaded on demand) + `math_verify` for MATH grading.
+
 ## The format (what the model is trained on)
 
 Each conversation is split into single **(prefix → target)** examples so every

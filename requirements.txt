@@ -7,3 +7,4 @@ safetensors
 huggingface_hub>=0.23.0
 hf_xet
 bfcl-eval
+math_verify   # symbolic answer-equivalence checking for the MATH benchmark (eval_academic.py)
