@@ -13,4 +13,6 @@ adapters/
 *.log
 *.pid
 bfcl_*.jsonl
+*_acad.json
+*_math.json
 .DS_Store

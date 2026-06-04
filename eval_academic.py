@@ -60,32 +60,47 @@ class HFEngine:
         return f"{BOQ}{cond}{prompt}{EOQ}"
 
     @torch.inference_mode()
+    def _gen_chunk(self, chunk: list[str], max_new_tokens: int, temperature: float,
+                   max_prompt_len: int) -> list[str]:
+        enc = self.tok(chunk, return_tensors="pt", padding=True, truncation=True,
+                       max_length=max_prompt_len, add_special_tokens=False).to(self.device)
+        # PrefixLM: entire prompt is one bidirectional block. Decode steps are causal
+        # (the port only consults token_type_ids on the prefill / first iteration).
+        token_type_ids = torch.ones_like(enc["input_ids"])
+        gen = self.model.generate(
+            input_ids=enc["input_ids"],
+            attention_mask=enc["attention_mask"],
+            token_type_ids=token_type_ids,
+            max_new_tokens=max_new_tokens,
+            do_sample=temperature > 1e-5,
+            temperature=temperature if temperature > 1e-5 else None,
+            eos_token_id=self.eos_id,
+            pad_token_id=self.tok.pad_token_id,
+        )
+        new = gen[:, enc["input_ids"].shape[1]:]
+        return self.tok.batch_decode(new, skip_special_tokens=True)
+
     def generate(self, prompts: list[str], condition: str, max_new_tokens: int,
                  temperature: float = 0.0, batch_size: int = 16,
                  max_prompt_len: int = 3072) -> list[str]:
-        """Batched generation with the PrefixLM prefill (token_type_ids=1 over prompt)."""
+        """Batched generation with the PrefixLM prefill. Adaptively halves the batch and
+        retries on CUDA OOM, so a too-large batch degrades gracefully instead of crashing
+        (long few-shot MCQ prompts need a much smaller batch than short math prompts)."""
         texts = [self._wrap(condition, p) for p in prompts]
-        out: list[str] = []
         self.tok.padding_side = "left"
-        for s in range(0, len(texts), batch_size):
-            chunk = texts[s:s + batch_size]
-            enc = self.tok(chunk, return_tensors="pt", padding=True, truncation=True,
-                           max_length=max_prompt_len, add_special_tokens=False).to(self.device)
-            # PrefixLM: entire prompt is one bidirectional block. Decode steps are causal
-            # (the port only consults token_type_ids on the prefill / first iteration).
-            token_type_ids = torch.ones_like(enc["input_ids"])
-            gen = self.model.generate(
-                input_ids=enc["input_ids"],
-                attention_mask=enc["attention_mask"],
-                token_type_ids=token_type_ids,
-                max_new_tokens=max_new_tokens,
-                do_sample=temperature > 1e-5,
-                temperature=temperature if temperature > 1e-5 else None,
-                eos_token_id=self.eos_id,
-                pad_token_id=self.tok.pad_token_id,
-            )
-            new = gen[:, enc["input_ids"].shape[1]:]
-            out.extend(self.tok.batch_decode(new, skip_special_tokens=True))
+        out: list[str] = []
+        i, bs = 0, max(1, batch_size)
+        while i < len(texts):
+            chunk = texts[i:i + bs]
+            try:
+                out.extend(self._gen_chunk(chunk, max_new_tokens, temperature, max_prompt_len))
+                i += bs
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                if bs == 1:
+                    raise
+                bs = max(1, bs // 2)
+                print(f"  [oom] retrying at batch_size={bs}", flush=True)
         return out
 
 
@@ -167,9 +182,11 @@ def micro_macro(stats: dict) -> dict:
 
 
 # ============================ benchmarks ============================
-# Each benchmark exposes: .prompts, .condition, .max_new_tokens, .compute_metrics(generations)
+# Each benchmark exposes: .prompts, .condition, .max_new_tokens, .batch_size,
+# .compute_metrics(generations). batch_size is per-benchmark because long few-shot MCQ
+# prompts need a far smaller batch than short math prompts (else CUDA OOM on an 80GB card).
 class GSM8k:
-    condition, max_new_tokens = "synth,cot", 512
+    condition, max_new_tokens, batch_size = "synth,cot", 512, 48
 
     def __init__(self, limit=None):
         ds = load_dataset("openai/gsm8k", "main", split="test")
@@ -202,11 +219,11 @@ class GSM8k:
 
 
 class MATH:
-    condition, max_new_tokens = "synth,cot", 512
+    condition, max_new_tokens, batch_size = "synth,cot", 512, 48
 
-    def __init__(self, limit=None):
+    def __init__(self, limit=None, seed=0):
         self.prompts, self.truth = [], []
-        for subset in get_dataset_config_names("EleutherAI/hendrycks_math"):
+        for subset in sorted(get_dataset_config_names("EleutherAI/hendrycks_math")):
             ds = load_dataset("EleutherAI/hendrycks_math", subset, split="test")
             for item in ds:
                 lab = last_boxed_only_string(item["solution"])
@@ -214,8 +231,16 @@ class MATH:
                     continue
                 self.prompts.append(item["problem"])
                 self.truth.append(lab)
-        if limit:
-            self.prompts, self.truth = self.prompts[:limit], self.truth[:limit]
+        if limit and limit < len(self.prompts):
+            # Seeded shuffle BEFORE slicing so the MATH-`limit` subset is representative
+            # across all 7 topics AND identical for every model (clean base-vs-ft delta),
+            # rather than `[:limit]` which would be dominated by the first subset.
+            import random as _r
+            idx = list(range(len(self.prompts)))
+            _r.Random(seed).shuffle(idx)
+            idx = idx[:limit]
+            self.prompts = [self.prompts[i] for i in idx]
+            self.truth = [self.truth[i] for i in idx]
 
     def compute_metrics(self, gens):
         correct = invalid = 0
@@ -231,7 +256,7 @@ class MATH:
 
 
 class DROP:
-    condition, max_new_tokens = "direct", 48
+    condition, max_new_tokens, batch_size = "direct", 48, 16
     EXAMPLES = [
         "To start the season, the Lions traveled south to Tampa, Florida to take on the Tampa Bay Buccaneers. The Lions scored first in the first quarter with a 23-yard field goal by Jason Hanson. The Buccaneers tied it up with a 38-yard field goal by Connor Barth, then took the lead when Aqib Talib intercepted a pass from Matthew Stafford and ran it in 28 yards. The Lions responded with a 28-yard field goal. In the second quarter, Detroit took the lead with a 36-yard touchdown catch by Calvin Johnson, and later added more points when Tony Scheffler caught an 11-yard TD pass. Tampa Bay responded with a 31-yard field goal just before halftime. The second half was relatively quiet, with each team only scoring one touchdown. First, Detroit's Calvin Johnson caught a 1-yard pass in the third quarter. The game's final points came when Mike Williams of Tampa Bay caught a 5-yard pass. The Lions won their regular season opener for the first time since 2007\nQ: How many points did the buccaneers need to tie in the first?\nA: 3",
         "Trying to snap a two-game skid, the Bills flew to Gillette Stadium for a Week 3 divisional fight with the New England Patriots. In the first quarter, QB J. P. Losman was immediately injured on the first offensive play of the game. He would finish the series, but ended up on the bench for the rest of the game. After New England took the lead with kicker Stephen Gostkowski's 24-yard field goal, rookie QB Trent Edwards played the rest of the game for Buffalo. The Bills would get their only score of the game as RB Marshawn Lynch got an 8-yard TD run, and a Rian Lindell extra point put the Bills ahead surprisingly 7-3. However, in the second quarter, the Patriots were able to open up their running game when Bills rookie standout Paul Posluszny was lost due to a broken arm. This left passing lanes open, and for the rest of the game, the Patriots dominated. QB Tom Brady's 8-yard TD pass to TE Benjamin Watson and a 3-yard TD pass to WR Randy Moss made it 17-7 at the half. In the third quarter, New England continued its conquest with Brady's 4-yard TD pass to WR Jabar Gaffney and RB Sammy Morris' 4-yard TD run. In the fourth quarter, the Patriots ended the day with Brady and Moss hooking up with each other again on a 45-yard TD pass.\nQ: How many games had the Bills won before this game?\nA: 0",
@@ -294,7 +319,7 @@ def _fmt_mcq(query, choices, gold_idx=None):
 
 class _MCQ:
     """Few-shot multiple-choice; generate 1 token, read the letter (matches HRM-Text)."""
-    condition, max_new_tokens = "direct", 1
+    condition, max_new_tokens, batch_size = "direct", 1, 8
 
     def __init__(self, rows, shots, by_subject=False):
         self.prompts, self.truth = [], []
@@ -355,7 +380,9 @@ def build_arc(limit=None, num_shots=25):
         ds = ds.select(range(min(limit, len(ds))))
     rows = [(None, r["question"], r["choices"]["text"], r["choices"]["label"].index(r["answerKey"]))
             for r in ds if r["answerKey"] in r["choices"]["label"]]
-    return _MCQ(rows, shots)
+    b = _MCQ(rows, shots)
+    b.batch_size = 4  # 25-shot -> very long prompts; keep the batch small
+    return b
 
 
 def build_hellaswag(limit=None, num_shots=10):
@@ -377,7 +404,9 @@ def build_winogrande(limit=None, num_shots=5):
     if limit:
         ds = ds.select(range(min(limit, len(ds))))
     rows = [(None, r["sentence"], [r["option1"], r["option2"]], int(r["answer"]) - 1) for r in ds]
-    return _MCQ(rows, shots)
+    b = _MCQ(rows, shots)
+    b.batch_size = 16  # short sentences -> a larger batch is safe
+    return b
 
 
 def build_boolq(limit=None, num_shots=5):
@@ -411,7 +440,8 @@ def main():
     ap.add_argument("--benchmarks", default=",".join(DEFAULT_ORDER),
                     help="comma list; subset of " + ",".join(DEFAULT_ORDER))
     ap.add_argument("--limit", type=int, default=None, help="cap examples per benchmark (quick runs)")
-    ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="override each benchmark's per-task default batch size")
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
@@ -431,10 +461,11 @@ def main():
     for name in names:
         print(f"\n===== {name} =====")
         bench = BENCHMARKS[name](args.limit, None)
+        bs = args.batch_size or getattr(bench, "batch_size", 8)
         print(f"  prompts: {len(bench.prompts)}  condition={bench.condition}  "
-              f"max_new_tokens={bench.max_new_tokens}")
+              f"max_new_tokens={bench.max_new_tokens}  batch_size={bs}", flush=True)
         gens = engine.generate(bench.prompts, bench.condition, bench.max_new_tokens,
-                               temperature=args.temperature, batch_size=args.batch_size)
+                               temperature=args.temperature, batch_size=bs)
         metrics = bench.compute_metrics(gens)
         results[name] = metrics
         print(f"  {json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in metrics.items() if k in ('n','acc','invalid','em','f1')})}")
