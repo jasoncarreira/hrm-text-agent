@@ -32,7 +32,11 @@ CALL_RE = re.compile(re.escape(TOOL_OPEN) + r"\s*(\{.*?\})\s*" + re.escape(TOOL_
 def pick_device(req):
     if req != "auto":
         return req
-    return "mps" if torch.backends.mps.is_available() else "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def generate(model, tok, prefix, device, max_new_tokens):
@@ -63,21 +67,27 @@ def parse_calls(text):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("prompt", nargs="?", default="What's the weather in Paris?")
+    p.add_argument("--model", default=None, help="path/repo of a FULL fine-tuned model (vs --adapter for LoRA)")
     p.add_argument("--adapter", default=None, help="path to a trained LoRA adapter dir")
     p.add_argument("--tools", nargs="*", default=list(TOOLS.keys()))
-    p.add_argument("--device", choices=["auto", "mps", "cpu"], default="auto")
+    p.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default="auto")
     p.add_argument("--max-iters", type=int, default=5)
     p.add_argument("--max-new-tokens", type=int, default=200)
     args = p.parse_args()
 
     device = pick_device(args.device)
-    src = args.adapter if args.adapter else MODEL_ID
-    print(f"[load] base={MODEL_ID} adapter={args.adapter or '(none — raw base)'} device={device}")
-    tok = AutoTokenizer.from_pretrained(src)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.float32).to(device).eval()
-    if args.adapter:
-        from peft import PeftModel
-        model = PeftModel.from_pretrained(model, args.adapter).eval()
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    if args.model:
+        print(f"[load] full model={args.model} device={device}")
+        tok = AutoTokenizer.from_pretrained(args.model)
+        model = AutoModelForCausalLM.from_pretrained(args.model, dtype=dtype).to(device).eval()
+    else:
+        print(f"[load] base={MODEL_ID} adapter={args.adapter or '(none — raw base)'} device={device}")
+        tok = AutoTokenizer.from_pretrained(args.adapter or MODEL_ID)
+        model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=dtype).to(device).eval()
+        if args.adapter:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, args.adapter).eval()
 
     tool_schemas = [TOOLS[n]["schema"] for n in args.tools if n in TOOLS]
     turns = [{"role": "user", "content": args.prompt}]
