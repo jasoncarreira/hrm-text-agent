@@ -446,6 +446,12 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
     ap.add_argument("--out", default=None, help="write results JSON here")
+    ap.add_argument("--h-cycles", type=int, default=None,
+                    help="override recurrence H_cycles at inference (architecture/cycle-scaling experiment)")
+    ap.add_argument("--l-cycles", type=int, default=None, help="override recurrence L_cycles at inference")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="disable the KV cache. Needed to raise cycles ABOVE the trained 2x3 — the cache is "
+                         "sized for the trained unroll, so up-cycles IndexError with it on. Much slower.")
     args = ap.parse_args()
 
     names = [b.strip() for b in args.benchmarks.split(",") if b.strip()]
@@ -456,6 +462,15 @@ def main():
     print(f"[eval] model={args.model} device={args.device} dtype={args.dtype} "
           f"limit={args.limit} math_verify={'on' if HAVE_MATH_VERIFY else 'OFF (fallback)'}")
     engine = HFEngine(args.model, args.device, getattr(torch, args.dtype))
+    if args.h_cycles is not None:
+        engine.model.config.H_cycles = args.h_cycles
+    if args.l_cycles is not None:
+        engine.model.config.L_cycles = args.l_cycles
+    if args.no_cache:
+        engine.model.config.use_cache = False
+    if args.h_cycles is not None or args.l_cycles is not None or args.no_cache:
+        print(f"[cycles] H_cycles={engine.model.config.H_cycles} L_cycles={engine.model.config.L_cycles} "
+              f"use_cache={engine.model.config.use_cache}")
 
     results = {}
     for name in names:
