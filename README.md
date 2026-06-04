@@ -4,23 +4,28 @@ Fine-tune [`sapientinc/HRM-Text-1B`](https://huggingface.co/sapientinc/HRM-Text-
 **base** (pre-alignment) model — to do **function / tool calling**, evaluated with the
 official **Berkeley Function Calling Leaderboard (BFCL)** AST checker.
 
-**Headline:** full-parameter SFT took held-out BFCL `simple` from **0% (base) → 70%**, with
-the multi-call categories well off zero. Trained model:
+**Headline:** full-parameter SFT took held-out BFCL `simple` from **0% (base) → 61.5%** (full
+test set), with the multi-call categories well off zero. Trained model:
 [`jasoncarreira/hrm-text-agent`](https://huggingface.co/jasoncarreira/hrm-text-agent).
 
-## Results (BFCL, official AST checker)
+## Results (BFCL v4, official AST checker, full test sets)
 
-| Category | Base | LoRA (`lm_head`) | **Full-param SFT** |
-|---|---|---|---|
-| simple | 0% | 8% | **70%** |
-| multiple | 0% | 0% | **56%** |
-| parallel | 0% | 0% | **41%** |
-| parallel_multiple | 0% | 0% | **37%** |
-| irrelevance | 100% | 89% | **80%** |
+| Category | n | Base | LoRA (`lm_head`) | **Full-param SFT** |
+|---|---|---|---|---|
+| simple | 400 | 0% | 8% | **61.5%** |
+| multiple | 200 | 0% | 0% | **53.5%** |
+| parallel | 200 | 0% | 0% | **37.5%** |
+| parallel_multiple | 200 | 0% | 0% | **28.0%** |
+| irrelevance | 240 | 100% | 89% | **80.8%** |
 
-*(per-category `--limit 100` sample; full-set run in progress.)* `simple` 0→70% on **held-out**
-tools is the win — full-FT cured the base model's instinct to *answer* instead of *call*,
-which LoRA never could.
+Non-live AST aggregate ≈ **48%** (count-weighted). `simple` 0→61.5% on **held-out** tools is the
+win — full-FT cured the base model's instinct to *answer* instead of *call*, which LoRA never
+could. (Full-SFT column = full sets; base/LoRA columns are earlier 100-sample reads.)
+
+**Where that lands among small models** (BFCL non-live AST): comfortably above every *generic*
+1B instruct (Llama-3.2-1B ~38, Gemma-3-1b ~20, Falcon3-1B ~9), but below the best purpose-built
+1B (xLAM-2-1b-fc-r ~69) and the 3B FC models — i.e. strong for a 1B *base* + SFT, not yet
+3B-level. Next lever: more parallel/multi-call data (xLAM/ToolACE) to lift the weak categories.
 
 ## How we got there (the useful findings)
 
