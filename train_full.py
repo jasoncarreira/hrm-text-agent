@@ -91,6 +91,10 @@ def main():
     p.add_argument("--max-len", type=int, default=2048)
     p.add_argument("--max-examples", type=int, default=-1)
     p.add_argument("--save-every", type=int, default=0)
+    p.add_argument("--no-grad-checkpoint", action="store_true",
+                   help="disable gradient checkpointing (needs more VRAM, but HRM's "
+                        "recurrent recompute fails the non-reentrant determinism check; "
+                        "fine to disable on a 80GB A100)")
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="auto")
@@ -105,11 +109,14 @@ def main():
     tok = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.float32)  # fp32 master
     model.config.use_cache = False
-    try:
-        model.gradient_checkpointing_enable()
-        print("[setup] gradient checkpointing on")
-    except Exception as e:  # noqa: BLE001
-        print(f"[setup] gradient checkpointing unavailable: {e}")
+    if args.no_grad_checkpoint:
+        print("[setup] gradient checkpointing OFF (--no-grad-checkpoint)")
+    else:
+        try:
+            model.gradient_checkpointing_enable()
+            print("[setup] gradient checkpointing on")
+        except Exception as e:  # noqa: BLE001
+            print(f"[setup] gradient checkpointing unavailable: {e}")
     model.to(device).train()
     print(f"[setup] FULL fine-tune: "
           f"{sum(pp.numel() for pp in model.parameters() if pp.requires_grad)/1e9:.3f}B trainable")

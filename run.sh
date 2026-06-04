@@ -6,6 +6,17 @@ set -euo pipefail
 
 echo "===== [1/5] install deps ====="
 pip install -q -r requirements.txt
+# transformers>=5.9 (native HrmText) imports torch.float8_e8m0fnu, which needs torch>=2.7.
+# The RunPod base image ships torch 2.4.1, so upgrade torch+torchvision to a matching pair.
+# cu126 wheels are forward-compatible with CUDA 12.x drivers (tested on driver 555 / CUDA 12.5).
+python - <<'PY'
+import torch, sys
+sys.exit(0 if hasattr(torch, "float8_e8m0fnu") else 1)
+PY
+if [ $? -ne 0 ]; then
+  echo "  torch $(python -c 'import torch;print(torch.__version__)') too old; upgrading to 2.7.1 (cu126)"
+  pip install -q --index-url https://download.pytorch.org/whl/cu126 "torch==2.7.1" "torchvision==0.22.1"
+fi
 
 echo "===== [2/5] build tool data (Hermes + glaive) ====="
 python convert_hermes.py --holdout 0
@@ -15,7 +26,8 @@ python make_mixed_data.py
 
 echo "===== [4/5] full-parameter SFT (3 epochs, bf16, lr 3e-5) ====="
 python train_full.py --data data/sft_mixed.jsonl --epochs 3 --max-len 2048 \
-  --batch-size 4 --grad-accum 8 --save-every 0 --out-dir models/hrm-tooluse-full
+  --batch-size 4 --grad-accum 8 --save-every 0 --no-grad-checkpoint \
+  --out-dir models/hrm-tooluse-full
 
 echo "===== [5/5] BFCL eval (official AST checker) ====="
 python bfcl_local.py --model models/hrm-tooluse-full --limit 100 --dump bfcl_errs.jsonl
