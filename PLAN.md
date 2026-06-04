@@ -44,7 +44,8 @@ PrefixLM masking (loss on response only) + `token_type_ids` on the prefix.
 ```bash
 git clone <public repo> && cd hrm-text-tooluse
 bash run.sh        # installs deps, builds data, trains, evals, prints BFCL numbers
-# optional: export HF_TOKEN=... HF_REPO=<user>/hrm-tooluse  to push the model
+# optional: export HF_TOKEN=...  to auto-push the model to jasoncarreira/hrm-text-agent
+#           (override the target with HF_REPO=<user>/<repo>)
 ```
 Files: `convert_hermes.py` → `make_mixed_data.py` → `train_full.py` → `bfcl_local.py`.
 

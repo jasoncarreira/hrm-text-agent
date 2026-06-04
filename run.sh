@@ -20,7 +20,8 @@ python train_full.py --data data/sft_mixed.jsonl --epochs 3 --max-len 2048 \
 echo "===== [5/5] BFCL eval (official AST checker) ====="
 python bfcl_local.py --model models/hrm-tooluse-full --limit 100 --dump bfcl_errs.jsonl
 
-if [ -n "${HF_REPO:-}" ] && [ -n "${HF_TOKEN:-}" ]; then
+export HF_REPO="${HF_REPO:-jasoncarreira/hrm-text-agent}"
+if [ -n "${HF_TOKEN:-}" ]; then
   echo "===== pushing model -> ${HF_REPO} ====="
   python - <<PY
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -30,5 +31,7 @@ AutoModelForCausalLM.from_pretrained("models/hrm-tooluse-full").push_to_hub(r, p
 AutoTokenizer.from_pretrained("models/hrm-tooluse-full").push_to_hub(r, private=True)
 print("pushed", r)
 PY
+else
+  echo "(set HF_TOKEN to auto-push the model to ${HF_REPO})"
 fi
 echo "===== ALL DONE ====="
