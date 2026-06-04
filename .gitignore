@@ -11,5 +11,5 @@ adapters/
 # run artifacts
 *.log
 *.pid
-bfcl_errs.jsonl
+bfcl_*.jsonl
 .DS_Store
