@@ -1,0 +1,15 @@
+# envs & caches
+.venv/
+__pycache__/
+*.pyc
+
+# generated data, models, checkpoints (rebuilt on the pod)
+data/
+models/
+adapters/
+
+# run artifacts
+*.log
+*.pid
+bfcl_errs.jsonl
+.DS_Store

@@ -1,0 +1,9 @@
+# torch is provided by the GPU pod's base image (a RunPod PyTorch/CUDA image).
+transformers>=5.9.0
+datasets>=2.14.0
+accelerate>=0.30.0
+peft>=0.11.0
+safetensors
+huggingface_hub>=0.23.0
+hf_xet
+bfcl-eval
