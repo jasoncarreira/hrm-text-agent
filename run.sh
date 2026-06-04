@@ -5,24 +5,14 @@
 set -euo pipefail
 
 echo "===== [1/5] install deps ====="
-# transformers>=5.9 (native hrm_text) needs torch>=2.7 (float8_e8m0fnu), but RunPod
-# images often ship torch 2.4. Install a torch>=2.7 cu118 wheel: the CUDA 11.8 runtime
-# runs on any modern driver (incl. hosts whose driver is <12.8), and A100 is fully
-# supported by cu118. Skipped automatically if torch>=2.7 is already present.
-python -c "import torch,sys; sys.exit(0 if tuple(map(int,torch.__version__.split('.')[:2]))>=(2,7) else 1)" \
-  || pip install -q --upgrade "torch>=2.7" --index-url https://download.pytorch.org/whl/cu118
 pip install -q -r requirements.txt
-# transformers>=5.9 (native HrmText) imports torch.float8_e8m0fnu, which needs torch>=2.7.
-# The RunPod base image ships torch 2.4.1, so upgrade torch+torchvision to a matching pair.
-# cu126 wheels are forward-compatible with CUDA 12.x drivers (tested on driver 555 / CUDA 12.5).
-python - <<'PY'
-import torch, sys
-sys.exit(0 if hasattr(torch, "float8_e8m0fnu") else 1)
-PY
-if [ $? -ne 0 ]; then
-  echo "  torch $(python -c 'import torch;print(torch.__version__)') too old; upgrading to 2.7.1 (cu126)"
-  pip install -q --index-url https://download.pytorch.org/whl/cu126 "torch==2.7.1" "torchvision==0.22.1"
-fi
+# transformers>=5.9 (native hrm_text) imports torch.float8_e8m0fnu -> needs torch>=2.7, but
+# RunPod images often ship torch 2.4. Upgrade torch+torchvision in lockstep (torchvision must
+# match torch or transformers dies on "torchvision::nms does not exist"). cu126 runs on any
+# 12.x driver via minor-version compatibility; A100 is fully supported. The `||` keeps `set -e`
+# happy — a bare `python -c` exiting 1 would otherwise abort the script before the upgrade runs.
+python -c "import torch,sys; sys.exit(0 if hasattr(torch,'float8_e8m0fnu') else 1)" \
+  || pip install -q --index-url https://download.pytorch.org/whl/cu126 "torch==2.7.1" "torchvision==0.22.1"
 
 echo "===== [2/5] build tool data (Hermes + glaive) ====="
 python convert_hermes.py --holdout 0
