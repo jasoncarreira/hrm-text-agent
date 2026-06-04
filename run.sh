@@ -5,6 +5,12 @@
 set -euo pipefail
 
 echo "===== [1/5] install deps ====="
+# transformers>=5.9 (native hrm_text) needs torch>=2.7 (float8_e8m0fnu), but RunPod
+# images often ship torch 2.4. Install a torch>=2.7 cu118 wheel: the CUDA 11.8 runtime
+# runs on any modern driver (incl. hosts whose driver is <12.8), and A100 is fully
+# supported by cu118. Skipped automatically if torch>=2.7 is already present.
+python -c "import torch,sys; sys.exit(0 if tuple(map(int,torch.__version__.split('.')[:2]))>=(2,7) else 1)" \
+  || pip install -q --upgrade "torch>=2.7" --index-url https://download.pytorch.org/whl/cu118
 pip install -q -r requirements.txt
 
 echo "===== [2/5] build tool data (Hermes + glaive) ====="
