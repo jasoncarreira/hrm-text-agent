@@ -24,33 +24,36 @@ if [ "$HF_REPO_V2" = "$V1_REPO" ]; then
   exit 1
 fi
 
-echo "===== [1/6] deps (torch>=2.7 for transformers 5.x; cu126 runs on any 12.x driver) ====="
+echo "===== [1/7] deps (torch>=2.7 for transformers 5.x; cu126 runs on any 12.x driver) ====="
 python -c "import torch,sys; sys.exit(0 if hasattr(torch,'float8_e8m0fnu') else 1)" \
   || pip install -q --index-url https://download.pytorch.org/whl/cu126 "torch==2.7.1" "torchvision==0.22.1"
 pip install -q -r requirements.txt
 
-echo "===== [2/6] build tool data (Hermes + glaive) ====="
+echo "===== [2/7] build tool data (Hermes + glaive) ====="
 python convert_hermes.py --holdout 0
 
-echo "===== [3/6] build new sources (xLAM multi-call + format-discipline slice) ====="
+echo "===== [3/7] build new sources (xLAM multi-call + format-discipline slice) ====="
 python convert_xlam.py --bias-multicall          # GATED: needs HF_TOKEN + xLAM terms accepted
 python make_format_slice.py                       # train/aux splits only (leakage-safe)
 
-echo "===== [4/6] assemble v2 mix (shuffled, evenly interleaved) ====="
+echo "===== [4/7] assemble v2 mix (shuffled, evenly interleaved) ====="
 python make_mixed_data.py --out data/sft_mixed_v2.jsonl \
   --n-tool 8000 --n-instr 6000 --n-irrel 2500 \
   --extra data/xlam.jsonl:14000 data/format_slice.jsonl:3000
 
-echo "===== [5/6] full-parameter SFT (3 epochs, bf16, lr 3e-5) -> ${OUT_DIR} ====="
+echo "===== [5/7] full-parameter SFT (3 epochs, bf16, lr 3e-5) -> ${OUT_DIR} ====="
 python train_full.py --data data/sft_mixed_v2.jsonl --epochs 3 --max-len 2048 \
   --batch-size 4 --grad-accum 8 --save-every 0 --no-grad-checkpoint \
   --out-dir "$OUT_DIR"
 
-echo "===== [6/6] BFCL eval (full set, official AST checker) ====="
+echo "===== [6/7] BFCL eval (full set, official AST checker) ====="
 python bfcl_local.py --model "$OUT_DIR" --dump bfcl_v2_errs.jsonl
 
+echo "===== [7/7] academic regression suite on v2 (compare to the base numbers in the README) ====="
+python eval_academic.py --model "$OUT_DIR" --out academic_v2.json
+
 if [ -n "${HF_TOKEN:-}" ]; then
-  echo "===== push -> ${HF_REPO_V2}  (v1 repo ${V1_REPO} left untouched) ====="
+  echo "===== push -> ${HF_REPO_V2}  (LAST step, after ALL evals; v1 repo ${V1_REPO} untouched) ====="
   HF_REPO_V2="$HF_REPO_V2" OUT_DIR="$OUT_DIR" V1_REPO="$V1_REPO" python - <<'PY'
 import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
