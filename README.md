@@ -25,6 +25,10 @@ Trained model: [`jasoncarreira/hrm-text-agent`](https://huggingface.co/jasoncarr
 - **Recurrence:** **cutting the recurrence cycles collapses reasoning** (GSM8k 87.5% → 0%) while
   a knowledge control only drifts to chance — direct evidence that the recurrent compute is what
   drives the reasoning. And test-time compute depth turns out to be **fixed at training**.
+- **v2** ([`hrm-text-agent-v2`](https://huggingface.co/jasoncarreira/hrm-text-agent-v2)): adding
+  xLAM parallel data pushed BFCL call competence **~48% → 68.3%** (best-1B territory) and **cured
+  the MCQ-format regression** — but the call-heavy mix cost **irrelevance** (−20) and **free-form
+  math** (GSM8k −7, MATH −8). A tool-caller win with a reasoning/irrelevance tax — see §4.
 
 ---
 
@@ -136,6 +140,52 @@ seeded subset and differs from the full-run 60.1% — within-sweep **deltas** ar
 
 ---
 
+## 4. v2 — scaling the calls with xLAM (and what it cost)
+
+v2 folded in **xLAM-60k** (parallel-biased, ~14k) for the weak call categories, a **format-discipline
+slice** (~3k single-letter-MCQ + `\boxed{}`-math, leakage-safe) to recover §2's MCQ regression, and
+more general/irrelevance data — all interleaved (`run_v2.sh`). Model:
+[`jasoncarreira/hrm-text-agent-v2`](https://huggingface.co/jasoncarreira/hrm-text-agent-v2).
+
+### BFCL — every call category jumped
+| Category | n | v1 | **v2** | Δ |
+|---|---|---|---|---|
+| simple | 400 | 61.5% | **81.5%** | +20.0 |
+| multiple | 200 | 53.5% | **77.0%** | +23.5 |
+| parallel | 200 | 37.5% | **59.0%** | +21.5 |
+| parallel_multiple | 200 | 28.0% | **42.5%** | +14.5 |
+| irrelevance | 240 | 80.8% | **60.8%** | −20.0 |
+
+Call-category competence (count-weighted, n=1000): **~48% → 68.3%** — into the purpose-built-1B
+range (xLAM-2-1b-fc-r ~69) on calls. The xLAM slice did exactly what it was meant to.
+**The tradeoff: irrelevance −20** — xLAM is *all-call* (no "don't-call" cases), so the model became
+more eager to call when no tool fits.
+
+### Academics — MCQ format recovered, but free-form math regressed
+| Benchmark | base | v1 | **v2** | note |
+|---|---|---|---|---|
+| MMLU | 60.1% | 55.5% | **58.4%** | invalid 11.9% → **1.4%** — format recovered |
+| ARC-C | 83.5% | 75.1% | **83.2%** | invalid 9.9% → **0%** — fully back to base |
+| HellaSwag | 63.3% | 61.9% | 61.9% | stable |
+| Winogrande | 72.2% | 70.6% | 70.7% | stable |
+| BoolQ | 86.3% | 87.3% | 86.3% | stable |
+| DROP (F1) | 84.8% | 83.3% | 83.7% | stable |
+| GSM8k | 84.5% | 85.6% | **78.6%** | **−7 vs v1**, invalid 0% — real reasoning, not format |
+| MATH-1000 | 49.3% | 45.4% | **37.0%** | **−8 vs v1**, invalid 26%→19.6% — format ok, accuracy down |
+
+The **format-discipline slice worked**: ARC fully recovered to base (invalid 9.9%→0%) and MMLU's
+invalid collapsed (11.9%→1.4%). But a **new free-form-math regression** appeared — GSM8k −7, MATH
+−8 — and it's *not* format (GSM8k invalid 0%; MATH invalid actually fell). Most likely cause: the
+v2 mix went **tool-heavy** (~2/3 tool-call examples), crowding out chain-of-thought math.
+
+### Net
+v2 is a markedly stronger **tool-caller** — call competence up ~20 pts into best-1B territory, and
+the v1 MCQ-format regression cured — at the cost of **irrelevance discipline** and **free-form
+math**. Both point to the same v3 fix: the mix got too call-heavy. Rebalance — keep xLAM for calls,
+restore no-call/irrelevance data, and protect the reasoning share.
+
+---
+
 ## Training recipe (matches sapientinc `cfg_sft`)
 - full-parameter, **bf16** autocast + fp32 master weights
 - **lr 3e-5**, cosine decay to 10%, no warmup; AdamW (0.9, 0.95), weight_decay 0.1
@@ -151,14 +201,17 @@ seeded subset and differs from the full-run 60.1% — within-sweep **deltas** ar
 | instructions | follow prompt / answer directly | HuggingFaceH4/no_robots | ~5k |
 | irrelevance | tools present but none fit → don't call | synthesized | ~2k |
 
-**v2** (`run_v2.sh`) — evidence-driven, all interleaved/shuffled:
-- **+ xLAM** (`convert_xlam.py`, Salesforce/xlam-60k, multi-call-biased) → lift the weak
-  `parallel`/`parallel_multiple` categories;
+**v2** (`run_v2.sh`, shipped — see §4) — evidence-driven, all interleaved/shuffled:
+- **+ xLAM** (`convert_xlam.py`, Salesforce/xlam-60k, multi-call-biased, ~14k) → lifted the weak
+  `parallel`/`parallel_multiple` categories (and all the others);
 - **+ format-discipline slice** (`make_format_slice.py`: single-letter-MCQ + `\boxed{}`-math from
-  *train/aux* splits — leakage-safe) → recover the §2 format regression;
-- **+ more general instructions** → preserve everyday behavior.
-- **Non-destructive:** trains to a separate dir and pushes to a **separate** HF repo
+  *train/aux* splits — leakage-safe) → recovered the §2 MCQ-format regression;
+- **+ general/irrelevance data** → preserve everyday behavior.
+- **Non-destructive:** trained to a separate dir and pushed to a **separate** HF repo
   (`hrm-text-agent-v2`), with a hard guard that refuses to overwrite v1.
+
+**v3 levers (from §4):** the v2 mix went call-heavy — rebalance with more no-call/irrelevance data
+(fix the −20 irrelevance) and protect the reasoning share (fix the GSM8k/MATH regression).
 
 ## Files
 | File | Purpose |
