@@ -49,8 +49,13 @@ python train_full.py --data data/sft_mixed_v2.jsonl --epochs 3 --max-len 2048 \
 echo "===== [6/7] BFCL eval (full set, official AST checker) ====="
 python bfcl_local.py --model "$OUT_DIR" --dump bfcl_v2_errs.jsonl
 
-echo "===== [7/7] academic regression suite on v2 (compare to the base numbers in the README) ====="
-python eval_academic.py --model "$OUT_DIR" --out academic_v2.json
+echo "===== [7/7] academic regression suite on v2 (matches base: full suite + MATH@1000) ====="
+# Mirror the base run EXACTLY for an apples-to-apples delta: the 7 non-MATH benchmarks
+# at full size, then MATH on the same seeded 1000-subset the base used (eval_academic's
+# --limit is global, so MATH must be a separate call; seed 0 -> identical subset).
+python eval_academic.py --model "$OUT_DIR" \
+  --benchmarks MMLU,ARC,HellaSwag,Winogrande,BoolQ,DROP,GSM8k --out academic_v2.json
+python eval_academic.py --model "$OUT_DIR" --benchmarks MATH --limit 1000 --out academic_v2_math.json
 
 if [ -n "${HF_TOKEN:-}" ]; then
   echo "===== push -> ${HF_REPO_V2}  (LAST step, after ALL evals; v1 repo ${V1_REPO} untouched) ====="
