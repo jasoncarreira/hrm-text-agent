@@ -26,6 +26,10 @@ def main():
     ap.add_argument("--n-instr", type=int, default=5000)
     ap.add_argument("--n-irrel", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--extra", nargs="*", default=[],
+                    help="extra pre-built convo files to mix in, as PATH or PATH:COUNT (each line a "
+                         "{tools,turns} or {raw_prompt,raw_target} convo). "
+                         "e.g. --extra data/xlam.jsonl:14000 data/format_slice.jsonl:3000")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
@@ -56,14 +60,26 @@ def main():
         tools = rng.sample(pool, min(k, len(pool))) if pool else []
         irrel.append({"tools": tools, "turns": ex["turns"]})
 
-    mixed = tool + pure + irrel
+    # 4) extra pre-built convo sources (xLAM tool-calls, format-discipline slice, ...)
+    extra = []
+    extra_counts = {}
+    for spec in args.extra:
+        path, _, cnt = spec.partition(":")
+        convos = [json.loads(l) for l in open(path) if l.strip()]
+        rng.shuffle(convos)
+        if cnt:
+            convos = convos[:int(cnt)]
+        extra += convos
+        extra_counts[os.path.basename(path)] = len(convos)
+
+    mixed = tool + pure + irrel + extra
     rng.shuffle(mixed)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:
         for c in mixed:
             f.write(json.dumps(c) + "\n")
     print(f"[mixed] tool={len(tool)} instruction={len(pure)} irrelevance={len(irrel)} "
-          f"total={len(mixed)} -> {args.out}")
+          f"extra={extra_counts} total={len(mixed)} -> {args.out}")
 
 
 if __name__ == "__main__":

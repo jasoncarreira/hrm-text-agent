@@ -88,7 +88,15 @@ def build_prefix(tool_schemas: list[dict], turns: list[dict[str, Any]]) -> str:
 
 
 def expand_conversation(convo: dict) -> list[tuple[str, str]]:
-    """Emit one (prefix, target) example per assistant turn."""
+    """Emit (prefix, target) examples for a conversation.
+
+    A "raw" convo ({"raw_prompt", "raw_target"}) is passed through verbatim — it bypasses
+    build_prefix, for format-discipline data in the *academic* envelope (single-letter MCQ,
+    \\boxed{} math), which isn't tool-shaped. raw_prompt must already end in <|im_end|> and
+    raw_target in <|box_end|>.
+    """
+    if "raw_prompt" in convo:
+        return [(convo["raw_prompt"], convo["raw_target"])]
     examples: list[tuple[str, str]] = []
     tools = convo.get("tools", [])
     context: list[dict[str, Any]] = []
