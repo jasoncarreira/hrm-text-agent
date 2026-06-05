@@ -1,0 +1,18 @@
+HRM-Text-1B tool-use v2 — BFCL v4 (official AST checker, full test sets)
+model: models/hrm-tooluse-v2  ->  jasoncarreira/hrm-text-agent-v2
+
+Category            n     v1       v2       delta
+simple             400   61.5%    81.5%    +20.0
+multiple           200   53.5%    77.0%    +23.5
+parallel           200   37.5%    59.0%    +21.5
+parallel_multiple  200   28.0%    42.5%    +14.5
+irrelevance        240   80.8%    60.8%    -20.0
+
+Aggregates:
+  4 call categories (count-weighted, n=1000):  v1 ~48%  ->  v2 68.3%
+  micro-average over all 1240:                 v1 54.7% ->  v2 66.8%
+
+Read: the 14k parallel-biased xLAM slice lifted every CALL category (+14.5..+23.5),
+moving v2 near/above the purpose-built-1B range on calls. The tradeoff is irrelevance
+(-20.0): xLAM is all-call (no "don't-call" cases), so the model became more eager to
+call when no tool fits. v3 lever: rebalance with more no-call / irrelevance data.
