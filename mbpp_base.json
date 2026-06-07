@@ -1,0 +1,7 @@
+{
+  "bench": "mbpp",
+  "model": "sapientinc/HRM-Text-1B",
+  "pass@1": 0.023346303501945526,
+  "passed": 6,
+  "n": 257
+}

@@ -1,0 +1,7 @@
+{
+  "bench": "humaneval",
+  "model": "sapientinc/HRM-Text-1B",
+  "pass@1": 0.012195121951219513,
+  "passed": 2,
+  "n": 164
+}

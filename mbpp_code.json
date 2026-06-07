@@ -1,0 +1,7 @@
+{
+  "bench": "mbpp",
+  "model": "models/hrm-code",
+  "pass@1": 0.16731517509727625,
+  "passed": 43,
+  "n": 257
+}
