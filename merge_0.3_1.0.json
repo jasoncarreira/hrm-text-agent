@@ -1,0 +1,22 @@
+{
+  "base": "sapientinc/HRM-Text-1B",
+  "experts": [
+    "jasoncarreira/hrm-text-agent-v2",
+    "jasoncarreira/hrm-text-code"
+  ],
+  "coeffs": [
+    0.3,
+    1.0
+  ],
+  "merge_out": "models/merge-0.3-1.0",
+  "entropy_nats": 1.09,
+  "collapsed": false,
+  "bfcl": {
+    "simple": 0.0,
+    "irrelevance": 100.0
+  },
+  "sample": [
+    "Paris is the capital of France.",
+    "def fibonacci(n):\n    if n == 0 or n == 1:\n        return n\n"
+  ]
+}

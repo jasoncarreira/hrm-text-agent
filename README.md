@@ -186,6 +186,43 @@ restore no-call/irrelevance data, and protect the reasoning share.
 
 ---
 
+## 5. Can HRM skills *compose*? (merging experts)
+
+If we train separate experts, can we **merge** them into one model? Two experiments
+(`merge_experts.py`, `merge_compose.py`), and the answer splits cleanly by whether the skills are the
+*same* or *distinct*.
+
+**Same-skill blend (v1 ⊕ v2) — yes, smooth.** A weight-soup `(1-α)·v1 + α·v2` stayed coherent at every
+blend (entropy 0.8–4.0, no collapse) and traced a smooth Pareto trade (simple 68→85 as irrelevance
+80→57). So HRM *tolerates* weight-merging — unlike LoRA, which collapsed (a soup lands in a stable
+basin instead of amplifying a delta across every recurrence cycle).
+
+**Distinct-skill composition (tool ⊕ code) — no, a hard XOR.** We trained a
+[code expert](https://huggingface.co/jasoncarreira/hrm-text-code) (HumanEval 1.2%→11%, MBPP 2.3%→16.7%)
+in the `synth,cot` lane, then task-arithmetic-merged it with the v2 tool expert:
+`base + c_tool·Δ_tool + 1.0·Δ_code`, sweeping `c_tool`:
+
+| c_tool (code=1.0) | collapsed | BFCL simple | HumanEval | MBPP |
+|---|---|---|---|---|
+| 1.0 | no | **64%** | 3% | 4% |
+| 0.7 | no | **0%** | 9% | 8% |
+| 0.5 | no | **0%** | 12% | 13% |
+| 0.3 | no | **0%** | 18% | 16% |
+
+No collapse at any coefficient — but **no coefficient holds both skills.** Tools work at *exactly*
+`c_tool=1.0` (where code is dead); weaken the tool delta at all and calling collapses to 0% while code
+climbs back toward the standalone expert. The merge just slides between the two experts. (Irrelevance
+hits 100% at low `c_tool` — an *artifact*: a model that can't call trivially "passes" the don't-call
+cases.) The condition-lane separation didn't rescue it — both deltas perturb shared weights, and the
+heavier one wins.
+
+**Takeaway:** HRM weight-merging *blends* same-skill deltas but cannot *compose* distinct skills — a
+capacity/interference wall at 1B. For a multi-skill HRM agent, the path is **model-routing** between
+separate experts (HRM's condition tokens could even feed the router), not weight-merging. Runbook:
+[`CODE_EXPERIMENT.md`](CODE_EXPERIMENT.md).
+
+---
+
 ## Training recipe (matches sapientinc `cfg_sft`)
 - full-parameter, **bf16** autocast + fp32 master weights
 - **lr 3e-5**, cosine decay to 10%, no warmup; AdamW (0.9, 0.95), weight_decay 0.1
@@ -230,6 +267,12 @@ restore no-call/irrelevance data, and protect the reasoning share.
 | `tools.py` | toy tool registry for the agent loop |
 | `run.sh` / `run_v2.sh` | turnkey GPU runners (v1 / v2) |
 | `run_academic_eval.sh` | turnkey academic-suite runner |
+| `make_code_data.py` | instruction→code SFT in the `synth,cot` lane (the code expert) |
+| `eval_code.py` | **HumanEval + MBPP** pass@1 (executes generated code) |
+| `merge_experts.py` | v1 ⊕ v2 weight-soup sweep + collapse check (§5) |
+| `merge_compose.py` | task-arithmetic composition merge, tool ⊕ code (§5) |
+| `run_code_expert.sh` | turnkey: train code expert → merge → eval |
+| `CODE_EXPERIMENT.md` | code-expert + merge experiment runbook |
 
 ## Run it
 

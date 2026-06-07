@@ -1,0 +1,7 @@
+{
+  "bench": "mbpp",
+  "model": "models/merge-0.7-1.0",
+  "pass@1": 0.075,
+  "passed": 6,
+  "n": 80
+}

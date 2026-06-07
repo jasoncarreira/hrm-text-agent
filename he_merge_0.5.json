@@ -1,0 +1,7 @@
+{
+  "bench": "humaneval",
+  "model": "models/merge-0.5-1.0",
+  "pass@1": 0.12,
+  "passed": 12,
+  "n": 100
+}

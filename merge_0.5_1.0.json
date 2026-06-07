@@ -1,0 +1,22 @@
+{
+  "base": "sapientinc/HRM-Text-1B",
+  "experts": [
+    "jasoncarreira/hrm-text-agent-v2",
+    "jasoncarreira/hrm-text-code"
+  ],
+  "coeffs": [
+    0.5,
+    1.0
+  ],
+  "merge_out": "models/merge-0.5-1.0",
+  "entropy_nats": 1.46,
+  "collapsed": false,
+  "bfcl": {
+    "simple": 0.0,
+    "irrelevance": 100.0
+  },
+  "sample": [
+    "Paris, France",
+    "def fibonacci(n):\n    a = 0\n    b = 1\n    if n == "
+  ]
+}
